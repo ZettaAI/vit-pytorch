@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from einops import repeat
+from einops.layers.torch import Rearrange
 
 from vit_pytorch.vit import Transformer
 
@@ -34,6 +35,13 @@ class MAE(nn.Module):
         self.decoder = Transformer(dim = decoder_dim, depth = decoder_depth, heads = decoder_heads, dim_head = decoder_dim_head, mlp_dim = decoder_dim * 4)
         self.decoder_pos_emb = nn.Embedding(num_patches, decoder_dim)
         self.to_pixels = nn.Linear(decoder_dim, pixel_values_per_patch)
+
+        self.to_img = Rearrange(
+            "b c (f h w) (p1 p2 pf c) -> b c (f pf) (h p1) (w p2)",
+            p1 = self.encoder.patch_height,
+            p2 = self.encoder.patch_width,
+            pf = self.encoder.frame_patch_size,
+        )
 
     def forward(self, img):
         device = img.device
@@ -94,5 +102,23 @@ class MAE(nn.Module):
 
         # calculate reconstruction loss
 
+        return pred_pixel_values, masked_patches, patches, masked_indices
+
+
+    def forward_image(self, img):
+        """Returns a masked image and a copy with predicted pixel values."""
+        device = img.device
+        pred_pixel_values, _, patches, masked_indices = self.forward(img)
+
+        copied_patches = patches.copy()
+        batch_range = torch.arange(patches.shape[0], device = device)[:, None]
+        copied_patches[batch_range, masked_indices] = pred_pixel_values
+
+        return self.to_img(copied_patches)
+
+
+    def recon_loss(self, img):
+        pred_pixel_values, masked_patches, *_ = self.forward(img)
         recon_loss = F.mse_loss(pred_pixel_values, masked_patches)
+
         return recon_loss
