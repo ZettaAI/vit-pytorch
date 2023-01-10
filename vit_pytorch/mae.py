@@ -37,9 +37,12 @@ class MAE(nn.Module):
         self.to_pixels = nn.Linear(decoder_dim, pixel_values_per_patch)
 
         self.to_img = Rearrange(
-            "b c (f h w) (p1 p2 pf c) -> b c (f pf) (h p1) (w p2)",
+            "b (f h w) (pf p1 p2 c) -> b c (f pf) (h p1) (w p2)",
+            h = self.encoder.image_height // self.encoder.patch_height,
             p1 = self.encoder.patch_height,
+            w = self.encoder.image_width // self.encoder.patch_width,
             p2 = self.encoder.patch_width,
+            f = self.encoder.frames // self.encoder.frame_patch_size,
             pf = self.encoder.frame_patch_size,
         )
 
@@ -110,7 +113,7 @@ class MAE(nn.Module):
         device = img.device
         pred_pixel_values, _, patches, masked_indices = self.forward(img)
 
-        copied_patches = patches.copy()
+        copied_patches = patches.clone()
         batch_range = torch.arange(patches.shape[0], device = device)[:, None]
         copied_patches[batch_range, masked_indices] = pred_pixel_values
 
